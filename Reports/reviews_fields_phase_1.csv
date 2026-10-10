@@ -1,0 +1,11 @@
+field,types,absent,null,blank_string,empty_container,missing_percent
+asin,{'str': 100000},0,0,0,0,0.0
+helpful_vote,{'int': 100000},0,0,0,0,0.0
+images,{'list': 100000},0,0,0,92980,0.0
+parent_asin,{'str': 100000},0,0,0,0,0.0
+rating,{'float': 100000},0,0,0,0,0.0
+text,{'str': 100000},0,0,21,0,0.021
+timestamp,{'int': 100000},0,0,0,0,0.0
+title,{'str': 100000},0,0,0,0,0.0
+user_id,{'str': 100000},0,0,0,0,0.0
+verified_purchase,{'bool': 100000},0,0,0,0,0.0

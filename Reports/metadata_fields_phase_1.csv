@@ -1,0 +1,17 @@
+field,types,absent,null,blank_string,empty_container,missing_percent
+author,"{'NoneType': 20, 'dict': 22}",99958,20,0,0,99.978
+average_rating,{'float': 100000},0,0,0,0,0.0
+bought_together,{'NoneType': 100000},0,100000,0,0,100.0
+categories,{'list': 100000},0,0,0,7621,0.0
+description,{'list': 100000},0,0,0,41952,0.0
+details,{'dict': 100000},0,0,0,299,0.0
+features,{'list': 100000},0,0,0,22430,0.0
+images,{'list': 100000},0,0,0,5,0.0
+main_category,"{'str': 98945, 'NoneType': 1055}",0,1055,0,0,1.055
+parent_asin,{'str': 100000},0,0,0,0,0.0
+price,"{'NoneType': 58171, 'float': 41823, 'str': 6}",0,58171,0,0,58.171
+rating_number,{'int': 100000},0,0,0,0,0.0
+store,"{'str': 99445, 'NoneType': 555}",0,555,1,0,0.556
+subtitle,"{'str': 33, 'NoneType': 9}",99958,9,0,0,99.967
+title,{'str': 100000},0,0,0,0,0.0
+videos,{'list': 100000},0,0,0,58860,0.0
