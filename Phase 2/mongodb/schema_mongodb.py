@@ -1,24 +1,25 @@
-"""Create or update the Phase II MongoDB collection schemas and indexes.
-
-Run before loading a new database, or apply to the already loaded database.
-Strict validation checks future inserts and updates, not existing documents.
-The parent_asin reference is not a database-enforced foreign key.
+"""
+MongoDB document model for Amazon Electronics.
+products._id stores parent_asin, the product primary key.
+reviews._id combines source_id and source_line, the review primary key.
+reviews.parent_asin references products._id without a foreign key constraint.
+Metadata arrays and product details are embedded in each product document.
 """
 
 import argparse
 
 from pymongo import MongoClient
-from pymongo.errors import CollectionInvalid
 
 
+# Nullable fields correspond to nullable columns in the MySQL schema.
 PRODUCT_SCHEMA = {
     "bsonType": "object",
     "required": ["_id"],
     "properties": {
-        "_id": {"bsonType": "string", "minLength": 1},
+        "_id": {"bsonType": "string"},  # parent_asin
         "title": {"bsonType": ["string", "null"]},
         "average_rating": {"bsonType": ["decimal", "null"]},
-        "rating_number": {"bsonType": ["long", "null"], "minimum": 0},
+        "rating_number": {"bsonType": ["long", "null"]},
         "price": {"bsonType": ["decimal", "null"]},
         "main_category": {"bsonType": ["string", "null"]},
         "store": {"bsonType": ["string", "null"]},
@@ -36,49 +37,46 @@ REVIEW_SCHEMA = {
         "_id": {
             "bsonType": "object",
             "required": ["source_id", "source_line"],
-            "additionalProperties": False,
             "properties": {
-                "source_id": {"bsonType": "string", "minLength": 1},
-                "source_line": {"bsonType": "long", "minimum": 1},
+                "source_id": {"bsonType": "string"},
+                "source_line": {"bsonType": "long"},
             },
         },
-        "parent_asin": {"bsonType": "string", "minLength": 1},
+        "parent_asin": {"bsonType": "string"},
         "user_id": {"bsonType": ["string", "null"]},
         "asin": {"bsonType": ["string", "null"]},
         "rating": {"bsonType": ["decimal", "null"]},
         "title": {"bsonType": ["string", "null"]},
         "review_text": {"bsonType": ["string", "null"]},
         "reviewed_at": {"bsonType": ["date", "null"]},
-        "helpful_vote": {"bsonType": ["long", "null"], "minimum": 0},
+        "helpful_vote": {"bsonType": ["long", "null"]},
         "verified_purchase": {"bsonType": ["bool", "null"]},
     },
 }
 
 
-def create_collection(db, name, schema):
-    """Create a collection or replace its validation rules on a rerun."""
-    options = {
-        "validator": {"$jsonSchema": schema},
-        "validationLevel": "strict",
-        "validationAction": "error",
-    }
-    try:
-        db.create_collection(name, **options)
-    except CollectionInvalid:
-        db.command({"collMod": name, **options})
-    print(f"{name}: schema applied.")
-
-
 def create_schema(db):
-    create_collection(db, "products", PRODUCT_SCHEMA)
-    create_collection(db, "reviews", REVIEW_SCHEMA)
-    # MongoDB automatically creates the unique _id index on each collection.
+    """Declare collections and field types, including on an existing database."""
+    existing = db.list_collection_names()
+    for name, schema in (("products", PRODUCT_SCHEMA), ("reviews", REVIEW_SCHEMA)):
+        options = {
+            "validator": {"$jsonSchema": schema},
+            "validationLevel": "strict",
+            "validationAction": "error",
+        }
+        if name in existing:
+            db.command({"collMod": name, **options})
+        else:
+            db.create_collection(name, **options)
+        print(f"{name}: schema applied.")
+
+    # MongoDB automatically creates the unique _id indexes.
     db.reviews.create_index("parent_asin", name="reviews_parent_asin")
     print("Indexes ready.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Create the MongoDB schema and indexes.")
+    parser = argparse.ArgumentParser(description="Create MongoDB collections and indexes.")
     parser.add_argument("--uri", default="mongodb://localhost:27017")
     parser.add_argument("--database", default="amazon_electronics_reviews")
     args = parser.parse_args()

@@ -139,6 +139,53 @@ def load_collection(db, filename, collection, limit=None, require_product=False)
     return stats
 
 
+
+def cleanup_reviews(db, count_only=False, limit=None):
+    """Check reviews in source order and remove those without product metadata.
+
+    Run after products finish loading. Keep products and reviews unchanged by
+    other processes during cleanup. Restarting safely rechecks surviving rows.
+    """
+    existing = db.list_collection_names()
+    if "products" not in existing or "reviews" not in existing:
+        raise ValueError("Both products and reviews must exist before cleanup.")
+    if db.products.find_one({}, {"_id": 1}) is None:
+        raise ValueError("Products is empty. Complete metadata loading before cleanup.")
+
+    print("Checking reviews for matching products...", flush=True)
+    scanned = unmatched = deleted = 0
+    last_id = {"source_id": SOURCE_ID, "source_line": Int64(0)}
+    end_id = {"source_id": SOURCE_ID,
+              "source_line": Int64(limit if limit is not None else 9223372036854775807)}
+
+    while True:
+        batch = list(db.reviews.find(
+            {"_id": {"$gt": last_id, "$lte": end_id}},
+            {"_id": 1, "parent_asin": 1},
+        ).sort("_id", 1).limit(BATCH_SIZE))
+        if not batch:
+            break
+
+        parents = list({row["parent_asin"] for row in batch})
+        matches = {row["_id"] for row in db.products.find(
+            {"_id": {"$in": parents}}, {"_id": 1}
+        )}
+        missing_ids = [row["_id"] for row in batch if row["parent_asin"] not in matches]
+        scanned += len(batch)
+        unmatched += len(missing_ids)
+        if missing_ids and not count_only:
+            result = db.reviews.delete_many({"_id": {"$in": missing_ids}})
+            deleted += result.deleted_count
+
+        last_id = batch[-1]["_id"]
+        print(f"Cleanup: checked {scanned:,}, unmatched {unmatched:,}, "
+              f"deleted {deleted:,}", flush=True)
+
+    stats = {"checked": scanned, "unmatched": unmatched, "deleted": deleted}
+    print(f"Cleanup finished: {stats}", flush=True)
+    return stats
+
+
 def main():
     parser = argparse.ArgumentParser(description="Load Amazon Electronics JSONL into MongoDB.")
     parser.add_argument("--uri", default="mongodb://localhost:27017")
@@ -147,15 +194,23 @@ def main():
     parser.add_argument("--limit", type=int, help="Read up to this physical line in each file.")
     parser.add_argument("--require-product", action="store_true",
                         help="Skip reviews without matching metadata; use a fresh database.")
+    parser.add_argument("--cleanup-only", action="store_true",
+                        help="Clean existing reviews without reading JSONL files.")
+    parser.add_argument("--count-only", action="store_true",
+                        help="With --cleanup-only, count unmatched reviews without deleting.")
     args = parser.parse_args()
+    if args.count_only and not args.cleanup_only:
+        parser.error("--count-only requires --cleanup-only")
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be positive")
     util.DATA_FOLDER = Path(args.data_folder)
     with MongoClient(args.uri, serverSelectionTimeoutMS=10000, tz_aware=True) as client:
         client.admin.command("ping")
         db = client[args.database]
-        load_collection(db, "meta_Electronics.jsonl", "products", args.limit)
-        load_collection(db, "Electronics.jsonl", "reviews", args.limit, args.require_product)
+        if not args.cleanup_only:
+            load_collection(db, "meta_Electronics.jsonl", "products", args.limit)
+            load_collection(db, "Electronics.jsonl", "reviews", args.limit, args.require_product)
+        cleanup_reviews(db, count_only=args.count_only, limit=args.limit)
         db.reviews.create_index("parent_asin", name="reviews_parent_asin")
     print("Database connection closed.")
 

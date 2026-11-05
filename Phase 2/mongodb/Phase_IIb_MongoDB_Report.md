@@ -1,15 +1,45 @@
 # Phase II(b) — MongoDB Design and Comparison with MySQL
 
-We used MongoDB to store the Electronics subset of Amazon Reviews 2023. The database, `amazon_electronics_reviews`, contains **1,610,012 products** and **43,886,944 reviews**. We checked these totals using mongosh.
+We stored the Amazon Reviews 2023 Electronics dataset in two MongoDB collections, `products` and `reviews`. The final database contains **1,610,012 products** and **43,886,944 reviews**, confirmed using mongosh.
 
-We created two collections, `products` and `reviews`. Each document in `products` stores one product. Its `_id` is the product's `parent_asin`. The other fields are `title`, `average_rating`, `rating_number`, `price`, `main_category`, and `store`. Categories, descriptions, and features are stored as arrays inside the product document. The `details` field stores an embedded document with attributes such as the manufacturer and color.
+## Collection Structures
 
-Each document in `reviews` stores one review. Its `_id` contains `source_id` and `source_line`, which together identify the original record in the dataset. The remaining fields are `parent_asin`, `user_id`, `asin`, `rating`, `title`, `review_text`, `reviewed_at`, `helpful_vote`, and `verified_purchase`. Text fields use strings, ratings and prices use Decimal128, counts and source line numbers use 64-bit integers, timestamps use UTC dates, and purchase verification uses a boolean. Missing or invalid optional values become null.
+Each `products` document stores one product. Its `_id` contains the cleaned `parent_asin` from the source metadata and acts as the product key.
 
-We kept product information together because it describes the same product. Reviews are stored separately because a product may have many reviews. Putting every review inside its product document could make that document too large. Each review links to a product through `parent_asin`, so product information does not need to be copied into every review.
+| Fields | BSON type | Purpose |
+| --- | --- | --- |
+| `_id` | String | Required product key (`parent_asin`) |
+| `title`, `main_category`, `store` | String or null | Product name, category, and store |
+| `average_rating`, `price` | Decimal128 or null | Metadata average rating and price |
+| `rating_number` | Int64 or null | Metadata rating count |
+| `categories`, `description`, `features` | Array or null | Embedded product information |
+| `details` | Document or null | Embedded attributes, such as manufacturer and color |
 
-The `schema_mongodb.py` file defines the field types, required keys, and indexes. The `load_mongodb.py` file reads the JSONL files in batches of 5,000 and uses the Phase I cleaning functions from `util.py`. It loads products first, then reviews, and finally checks whether each review has a matching product. Cleanup checked all **43,886,944 reviews**, found **no unmatched reviews**, and deleted **no records**. Existing document IDs are skipped when the loader runs again.
+Each `reviews` document stores one source review. Its `_id` is an embedded document containing `source_id` and `source_line`, preserving the combined review key used in MySQL.
 
-MySQL stores this data in tables, while MongoDB stores it in documents. Both designs keep products and reviews separate and use the same identifiers. Both also store nested product information. MySQL uses JSON columns for this information, while MongoDB uses arrays and embedded documents. Queries can combine products and reviews using SQL joins in MySQL or `$lookup` in MongoDB. MongoDB can also use `$unwind` to process categories individually.
+| Fields | BSON type | Purpose |
+| --- | --- | --- |
+| `_id` | Document | Required combined review key |
+| `_id.source_id` | String | Required dataset identifier |
+| `_id.source_line` | Int64 | Required original JSONL line number |
+| `parent_asin` | String | Required reference to `products._id` |
+| `user_id`, `asin` | String or null | Reviewer and reviewed item identifiers |
+| `title`, `review_text` | String or null | Review title and body |
+| `rating` | Decimal128 or null | Review rating |
+| `reviewed_at` | Date or null | UTC review timestamp |
+| `helpful_vote` | Int64 or null | Helpful-vote count |
+| `verified_purchase` | Boolean or null | Purchase verification flag |
 
-MongoDB automatically creates a unique `_id` index for each collection. We also created an index on `reviews.parent_asin` to help find reviews for a product. MySQL defines field types through its table schema. Our MongoDB schema checks field types when documents are inserted or updated, while cleanup checks that product references exist. Query performance will be measured in Phase III.
+Missing or invalid optional values become null. Valid empty arrays and documents are preserved. Images, videos, product author, subtitle, and bought_together are excluded, matching Phase I.
+
+## Design Decisions and Loading
+
+Product arrays and details are embedded because they describe the same product and can be read together. Reviews are kept separately because a product may have many reviews. Embedding them all could make a product document exceed MongoDB's 16 MiB size limit. Linking reviews through `parent_asin` also avoids copying product information into every review.
+
+The schema file defines field types, required keys, and indexes. The PyMongo loader reuses Phase I cleaning functions, reads the JSONL files in batches of 5,000, and loads products before reviews. Existing IDs are skipped on reruns. Cleanup then checks product references. It checked **43,886,944 reviews**, found **zero unmatched reviews**, and deleted **zero records**.
+
+## Comparison with Phase I MySQL
+
+MySQL uses two tables with `parent_asin` and `(source_id, source_line)` as their primary keys. MongoDB uses two collections with corresponding `_id` keys. Both designs preserve nested product information. MySQL stores it in JSON columns, while MongoDB stores it as BSON arrays and embedded documents. MySQL defines types through table columns, while our MongoDB schema checks document types on future inserts and updates. Cleanup checks cross-collection references at import time.
+
+MongoDB automatically creates unique `_id` indexes. We also created `reviews_parent_asin` on `reviews.parent_asin` to support finding reviews for a product. MySQL uses SQL joins to combine products and reviews. MongoDB can use `$lookup` for this relationship and `$unwind` to process array elements, such as categories. Keeping reviews separate makes these joins necessary when an analysis needs both review measures and product attributes. Equivalent-query performance will be measured in Phase III.
